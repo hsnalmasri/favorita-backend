@@ -6,7 +6,7 @@ from app.config import DATASET_PATH, DATE_COL, ITEM_COL, OIL_DROP_COLS, TARGET_C
 # choose columns only; give tight dtypes to cut RAM
 _USECOLS = [DATE_COL, ITEM_COL, TARGET_COL]
 _DTYPES  = {ITEM_COL: "int32", TARGET_COL: "float32"}  # or int32 if counts
-_CHUNK   = 200_000  # tune if needed
+_CHUNK   = 10_000  # tune if needed
 
 def load_dataset(drop_last_month: bool = True) -> pd.DataFrame:
     print(f"[IO] Reading dataset from: {DATASET_PATH!r}")
