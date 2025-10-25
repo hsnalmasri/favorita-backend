@@ -1,6 +1,6 @@
 import pandas as pd
 from . import __init__ as _
-from app.config import DATASET_PATH, DATE_COL, ITEM_COL, OIL_DROP_COLS
+from app.config import DATASET_PATH, DATE_COL, ITEM_COL, OIL_DROP_COLS, TARGET_COL
 
 
 # choose columns only; give tight dtypes to cut RAM
