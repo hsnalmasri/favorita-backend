@@ -84,79 +84,48 @@ def ets_tune(Ntest: int = 6,
     item_id: str | None = None,
     CI: float = 0.95,
 )->pd.DataFrame:
-    
-    df=io.load_dataset()
-    df=monthly_total_aggregate(df)
-    train_set, test_set=train_test_dataset(df, Ntest)
-    
-    train_set=_to_series(train_set)
-    test_set=_to_series(test_set)
-    
-    print('fitting ETS model')
+    y_df = io.load_monthly_total_agg(drop_last_month=True)
+
+    # safety: clean & ensure freq
+    y = y_df["y"].astype("float64")
+    y = y.replace([float("inf"), float("-inf")], pd.NA).dropna()
+    if len(y) < 24:
+        raise ValueError("Not enough monthly points after cleaning; need >= 24.")
+    y.index = pd.DatetimeIndex(y.index, freq="M")
+
+    # train/test split
+    if Ntest <= 0 or Ntest >= len(y):
+        raise ValueError(f"Bad Ntest={Ntest}; must be between 1 and {len(y)-1}.")
+    y_train = y.iloc[:-Ntest]
+    y_test  = y.iloc[-Ntest:]
+
+    # multiplicative guard
+    if (seasonal == "mul" or trend == "mul") and (y_train <= 0).any():
+        raise ValueError("Multiplicative components require positive data.")
+
+    sp = SEASONAL_PERIODS if seasonal else None
+
     model = ETSModel(
-        train_set,
-        error=error,
-        trend=trend,
-        seasonal=seasonal,
-        seasonal_periods=seasonal_periods if seasonal else None,
-        damped_trend=damped_trend,
-        initialization_method="estimated",
+        y_train, error="add", trend=trend, seasonal=seasonal,
+        seasonal_periods=sp, initialization_method="estimated",
     )
+    res = model.fit(optimized=True)
 
-    all_manual = (
-        smoothing_level is not None
-        and (trend is None or smoothing_trend is not None)        # beta only matters if trend
-        and (seasonal is None or smoothing_seasonal is not None)  # gamma only if seasonal
-        and (not damped_trend or phi is not None)                 # phi only if damped
-    )
+    pred_bt = res.get_prediction(start=y_test.index[0], end=y_test.index[-1], optimized=True)
+    sf_bt = pred_bt.summary_frame(alpha=1-CI)
+    mean_bt  = sf_bt.filter(like="mean").iloc[:, 0]
 
-    res = model.fit(
-        optimized=not all_manual,
-        smoothing_level=smoothing_level,
-        smoothing_trend=smoothing_trend,
-        smoothing_seasonal=smoothing_seasonal,
-        damping_trend=phi,   # φ
-    )
+    from utils import err_metrics
+    mae   = float((y_test - mean_bt).abs().mean())
+    smape = float(err_metrics.smape(y_test.values, mean_bt.values))
+    bias  = float(err_metrics.mean_bias_error(y_test.values, mean_bt.values))
 
-    fitted=res.fittedvalues
-    start_date=test_set.index[-1]+test_set.index.freq
-    end_date=test_set.index[-1]+test_set.index.freq*Ntest
+    train_out = pd.DataFrame({"ds": y_train.index, "y": y_train.values, "fitted": res.fittedvalues.reindex(y_train.index).values})
+    pred_out  = pd.DataFrame({"ds": y_test.index,  "y": y_test.values,  "yhat": mean_bt.values})
 
-    print("forecasting")
-    pred=res.get_prediction(start=start_date, end=end_date, optimized=True)
-
-    print("forecast successfull")
-    sf=pred.summary_frame(alpha=1-CI)
-    mean=sf.filter(like="mean").iloc[:, 0]
-    lower=sf.filter(like="lower").iloc[:, 0]
-    upper=sf.filter(like="upper").iloc[:, 0]
-
-    print('evaluating ETS model')
-    smape=err_metrics.smape(test_set.values, mean)
-    mae=mean_absolute_error(test_set.values, mean)
-    bias=err_metrics.mean_bias_error(test_set.values, mean)
-    
-
-    train_out=pd.DataFrame({
-        'ds':train_set.index.values,
-        'y':train_set.values,
-        'fitted':fitted.values
-    })
-    pred_out=pd.DataFrame({
-        'ds':test_set.index.values,
-        'y':test_set.values,
-        'yhat':mean,
-        'lower':lower,
-        'upper':upper
-    })
     return {
-        'train':train_out,
-        'pred':pred_out,
-        'smape':smape,
-        'mae':mae,
-        'bias':bias,
-        'model': res
-        
+        "train": train_out, "pred": pred_out,
+        "smape": smape, "mae": mae, "bias": bias, "model": res,
     }
     
 
