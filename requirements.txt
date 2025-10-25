@@ -1,0 +1,11 @@
+pathlib
+numpy
+pandas
+statsmodels
+utils
+scikit-learn
+fastapi
+pydantic
+typing
+uvicorn
+
